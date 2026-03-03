@@ -1,0 +1,59 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  judge0:
+    image: judge0/judge0:latest
+    environment:
+      DATABASE_URL: postgres://appuser:secret@db:5432/appdb
+    ports:
+      - "2358:2358"
+    depends_on:
+      - db
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://appuser:secret@db:5432/appdb
+      JUDGE0_URL: http://judge0:2358
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+      - judge0
+
+  worker:
+    build:
+      context: ./backend
+    command: celery -A app.worker.tasks worker --loglevel=info -Q submissions
+    environment:
+      DATABASE_URL: postgresql+psycopg2://appuser:secret@db:5432/appdb
+      JUDGE0_URL: http://judge0:2358
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+      - judge0
+
+volumes:
+  db-data:
